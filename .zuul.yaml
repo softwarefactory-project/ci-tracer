@@ -1,0 +1,17 @@
+---
+- job:
+    name: ci-tracer-test
+    pre-run: playbooks/pre.yaml
+    run: playbooks/run.yaml
+    post-run: playbooks/post.yaml
+    vars:
+      ci_tracer_args: "--min-cpu 1"
+    nodeset:
+      nodes:
+        - name: host
+          label: cloud-fedora-30
+
+- project:
+    check:
+      jobs:
+        - ci-tracer-test

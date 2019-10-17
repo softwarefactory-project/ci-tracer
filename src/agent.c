@@ -12,55 +12,202 @@
    License for the specific language governing permissions and limitations
    under the License. */
 
-#include <uapi/linux/ptrace.h>
+/* The goal of this program is to collect process informations.
+*/
+#define BPF_LICENSE GPL
 #include <linux/sched.h>
 
-struct pid_info_t {
-  u64 start_time;
-  u32 cgroup;
-  char comm[TASK_COMM_LEN];
-};
+// Internal data to record next task start time
+BPF_HASH(start_time, u32, u64, PID_MAX);
+// Shared data of tgid and oncpu time
+BPF_HASH(oncpus, u32, u64, PID_MAX);
 
-BPF_TABLE("hash", pid_t, struct pid_info_t, pid_infos, 4096);
-BPF_TABLE("hash", pid_t, u64, oncpus, 4096);
-
-// Each time the scheduler switch a process this function get called
-int sched_switch(struct pt_regs *ctx, struct task_struct *prev)
+/*
+RAW_TRACEPOINT_PROBE(sched_switch)
 {
-  // The current kernel time
-  u64 ts = bpf_ktime_get_ns();
-  pid_t prev_pid = prev->pid;
+  u64 cur_time = bpf_ktime_get_ns();
+  struct task_struct *prev = (struct task_struct *)ctx->args[1];
+  struct task_struct *next= (struct task_struct *)ctx->args[2];
 
-  // First let's record info about the next pid (the current one) to be scheduled
-  pid_t cur_pid = bpf_get_current_pid_tgid();
-  struct pid_info_t *pid_info = pid_infos.lookup(&cur_pid);
-  if (pid_info == NULL) {
-    // This is the first time we see that pid, collect cgroup and comm name
-    struct pid_info_t new_pid_info = {};
-    new_pid_info.cgroup = bpf_get_current_cgroup_id() & 0xffffffff;
-    if (new_pid_info.cgroup == 0 || new_pid_info.cgroup == 1) {
-      // Skip global cg
+  u32 pid;
+  u32 tgid;
+  bpf_probe_read(&pid, sizeof(prev->pid), &prev->pid);
+  bpf_probe_read(&tgid, sizeof(prev->tgid), &prev->tgid);
+
+  if (tgid) {
+    u64 *prev_time = start_time.lookup(&pid);
+    if (prev_time != NULL) {
+      // Previous task start time was recorded, compute the time it spent oncpu
+      u64 delta = (cur_time - *prev_time);
+      if (delta > 0 && delta < INTERVAL_NS) {
+        // Per tgid cpu info
+        u64 *oncpu = oncpus.lookup(&tgid);
+        if (oncpu != NULL) {
+          delta += *oncpu;
+        }
+        // Record time per task group
+        oncpus.update(&tgid, &delta);
+      }
     }
-    new_pid_info.start_time = ts;
-    bpf_get_current_comm(&new_pid_info.comm, sizeof(new_pid_info.comm));
-    pid_infos.update(&cur_pid, &new_pid_info);
-  } else {
-    // Reset the start_time of that pid
-    pid_info->start_time = ts;
   }
 
-  // Then count time for the previous process
-  //if (prev->state == TASK_RUNNING) {
-  struct pid_info_t *prev_info = pid_infos.lookup(&prev_pid);
-  if (prev_info != NULL) {
-    u64 delta = ts - prev_info->start_time;
-    // We know about that process, let's update it's time
-    u64 *oncpu = oncpus.lookup(&prev_pid);
-    if (oncpu == NULL) {
-      oncpus.update(&prev_pid, &delta);
-    } else {
-      *oncpu += delta;
+  // Record the start time of the next
+  u32 next_pid;
+
+  bpf_probe_read(&next_pid, sizeof(next->pid), &next->pid);
+  cur_time = bpf_ktime_get_ns();
+  start_time.update(&next_pid, &cur_time);
+  return 0;
+}
+*/
+
+// Each time the scheduler switch a task this function get called
+int finish_task_switch(struct pt_regs *ctx, struct task_struct *prev)
+{
+  u64 cur_time = bpf_ktime_get_ns();
+  u32 pid = prev->pid;
+  u32 tgid = prev->tgid;
+  if (tgid) {
+    u64 *prev_time = start_time.lookup(&pid);
+    if (prev_time != NULL) {
+      // Previous task start time was recorded, compute the time it spent oncpu
+      u64 delta = (cur_time - *prev_time);
+      if (delta > 0 && delta < INTERVAL_NS) {
+        // Per tgid cpu info
+        u64 *oncpu = oncpus.lookup(&tgid);
+        if (oncpu != NULL) {
+          delta += *oncpu;
+        }
+        // Record time per task group
+        oncpus.update(&tgid, &delta);
+      }
     }
-  } //}
+  }
+
+  // Record the start time of the next task
+  u32 next_pid = bpf_get_current_pid_tgid() & 0xffffffff;
+  cur_time = bpf_ktime_get_ns();
+  start_time.update(&next_pid, &cur_time);
+  return 0;
+}
+
+
+// The exec perf channel
+BPF_PERF_OUTPUT(execs);
+
+#define MAXARGS  8
+#define ARGSIZE  128
+
+enum execs_perf_type {
+                      EVENT_TYPE_INIT,
+                      EVENT_TYPE_ARGS,
+                      EVENT_TYPE_EXEC,
+                      EVENT_TYPE_EXIT,
+                      EVENT_TYPE_FORK,
+};
+
+struct exec_info_t {
+  enum execs_perf_type type;
+  u32 pid;
+  u32 ppid;
+  u32 cgroup;
+  char arg[ARGSIZE];
+};
+
+static int submit_arg(struct pt_regs *ctx, void *ptr, struct exec_info_t *inf)
+{
+  const char *argp = NULL;
+  bpf_probe_read(&argp, sizeof(argp), ptr);
+  if (argp) {
+    bpf_probe_read(&inf->arg, sizeof(inf->arg), argp);
+    if (inf->arg[0]) {
+      execs.perf_submit(ctx, inf, sizeof(struct exec_info_t));
+    }
+    return 1;
+  }
+  return 0;
+}
+
+int syscall__execve(struct pt_regs *ctx,
+                    const char __user *filename,
+                    const char __user *const __user *__argv,
+                    const char __user *const __user *__envp)
+{
+  // Send initial info
+  struct task_struct *tsk = (struct task_struct *)bpf_get_current_task();
+  struct exec_info_t inf = {};
+  inf.type = EVENT_TYPE_INIT;
+  inf.pid = tsk->tgid;
+  inf.ppid = tsk->real_parent->tgid;
+  inf.cgroup = bpf_get_current_cgroup_id() & 0xffffffff;
+  bpf_probe_read(inf.arg, sizeof(inf.arg), filename);
+  execs.perf_submit(ctx, &inf, sizeof(inf));
+
+  // Send argv
+  inf.type = EVENT_TYPE_ARGS;
+#pragma unroll
+  for (int i = 1; i < MAXARGS; i++) {
+    if (submit_arg(ctx, (void *)&__argv[i], &inf) == 0)
+      break;
+  }
+  return 0;
+}
+
+int do_ret_sys_execve(struct pt_regs *ctx)
+{
+  struct task_struct *tsk = (struct task_struct *)bpf_get_current_task();
+  struct exec_info_t inf = {};
+  inf.pid = tsk->tgid;
+  inf.ppid = tsk->real_parent->tgid;
+  inf.type = EVENT_TYPE_EXEC;
+  // EVENT_TYPE_EXEC store the exec success status in the cgroup field
+  inf.cgroup = PT_REGS_RC(ctx);
+  execs.perf_submit(ctx, &inf, sizeof(inf));
+  return 0;
+}
+
+/* // tracepoint to collect threads
+TRACEPOINT_PROBE(sched, sched_process_exec)
+//  int syscall__clone(struct pt_regs *ctx) {
+{
+  struct task_struct *tsk = (struct task_struct *)bpf_get_current_task();
+  struct exec_info_t inf = {};
+  inf.type = EVENT_TYPE_INIT;
+  inf.pid = tsk->tgid; //bpf_get_current_pid_tgid() >> 32;
+  //inf.pid = tsk->pidPT_REGS_RC(ctx);
+  inf.ppid = tsk->real_parent->tgid;
+  inf.cgroup = bpf_get_current_cgroup_id() & 0xffffffff;
+  bpf_get_current_comm(&inf.arg, sizeof(inf.arg));
+  execs.perf_submit(args, &inf, sizeof(inf));
+  return 0;
+}
+*/
+
+TRACEPOINT_PROBE(sched, sched_process_fork)
+{
+  struct exec_info_t inf = {};
+  inf.type = EVENT_TYPE_FORK;
+  inf.pid = args->child_pid;
+  inf.ppid = args->parent_pid;
+  inf.cgroup = bpf_get_current_cgroup_id() & 0xffffffff;
+  execs.perf_submit(args, &inf, sizeof(inf));
+  return 0;
+}
+
+TRACEPOINT_PROBE(sched, sched_process_exit)
+{
+  struct task_struct *tsk = (struct task_struct *)bpf_get_current_task();
+  if (tsk->pid != tsk->tgid) {
+    // thread died
+    return 0;
+  }
+  struct exec_info_t inf = {};
+  inf.pid = tsk->tgid;
+  inf.type = EVENT_TYPE_EXIT;
+  inf.ppid = tsk->real_parent->tgid;
+  // EVENT_TYPE_EXIT store the exit code in the cgroup field
+  inf.cgroup = tsk->exit_code >> 8;
+  bpf_get_current_comm(&inf.arg, sizeof(inf.arg));
+  execs.perf_submit(args, &inf, sizeof(inf));
   return 0;
 }

@@ -1,0 +1,41 @@
+---
+- name: Stop service
+  systemd:
+    name: ci-tracer
+    state: stopped
+  become: yes
+
+- name: Check service log
+  shell: |
+    uname -a;
+    rpm -qa | grep kernel;
+    journalctl -u ci-tracer | tail -n 120;
+  become: yes
+
+- name: Add html file
+  copy:
+    content: |
+      <!DOCTYPE html>
+      <html lang="en">
+        <head>
+          <meta charset="utf-8" />
+          <meta name="viewport" content="width=device-width, initial-scale=1" />
+          <title>ci-tracer</title>
+          <link href="https://softwarefactory-project.io/static/ci-tracer/ci-bpf.css" rel="stylesheet">
+        </head>
+        <body>
+          <noscript>You need to enable JavaScript to run this app.</noscript>
+          <div id="root"></div>
+          <script src="https://softwarefactory-project.io/static/ci-tracer/ci-bpf.js"></script>
+        </body>
+      </html>
+    dest: "{{ ansible_env.HOME }}/zuul-output/logs/ci-tracer.html"
+
+- name: Return the report artifact
+  delegate_to: localhost
+  zuul_return:
+    data:
+      zuul:
+        artifacts:
+          - name: "CiTracer report"
+            url: "ci-tracer.html"

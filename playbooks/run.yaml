@@ -1,0 +1,19 @@
+- hosts: all
+  tasks:
+    - name: Check json output
+      shell: |
+        journalctl -u ci-tracer | cat
+        ls -la "{{ ansible_user_dir }}/zuul-output/logs"
+        cat {{ ansible_user_dir }}/zuul-output/logs/ci-tracer.json
+      ignore_errors: yes
+      become: yes
+
+    - name: Generate a bit of load
+      shell: |
+        python3 -c "for i in range(2000): print(i**i)" | dd of=/dev/null
+
+- hosts: all
+  tasks:
+    - name: test command
+      command: nmcli d
+      become: yes
