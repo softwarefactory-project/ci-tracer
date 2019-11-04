@@ -15,9 +15,13 @@
 
 import * as React from 'react'
 
+// Event needs to be live-binding or something...
+import { event } from 'd3-selection'
+
 const d3 = {
   ...require('d3-array'),
   ...require('d3-axis'),
+  ...require('d3-brush'),
   ...require('d3-hierarchy'),
   ...require('d3-interpolate'),
   ...require('d3-scale'),
@@ -143,80 +147,154 @@ export class Bars extends D3 {
 export class HeatMap extends D3 {
   create() {
     console.log("Creating heat map...")
-    const { tasks, dates, data, width } = this.props
-    const margin = { top: 50, right: 70, bottom: 0, left: 40 },
+    const { tasks, dates, data, navData, width } = this.props
+    const startDate = dates[0],
+          endDate = dates[dates.length - 1],
+          navHeight = 50,
+          navTopMargin = 20,
+          navBottomMargin = 10,
+          navY = d3.scaleLinear().range([navHeight, 0]).domain([0, d3.max(navData)]),
+          navX = d3.scaleUtc().range([0, width]).domain([startDate, endDate]),
+          margin = { top: 60 + navTopMargin + navBottomMargin + navHeight, right: 70, bottom: 0, left: 40 },
           myColor = d3.interpolateReds,
           rowHeight = 10,
           height = data.length * rowHeight,
-          y = d3.scaleBand().range([0, height]),
-          x = d3.scaleUtc().range([0, width]),
-          bw = width / (dates.length - 1),
-          bh = rowHeight,
-
-          startDate = dates[0],
-          endDate = dates[dates.length - 1],
+          y = d3.scaleBand().range([0, height]).domain(data.map(d => (d.id))).padding(0.1),
+          x = d3.scaleUtc().range([0, width]).domain([startDate, endDate]),
           notes = tasks.filter(t => t.date > startDate && t.date < endDate)
 
-    y.domain(data.map(d => (d.id))).padding(0.1)
-    x.domain([startDate, endDate])
-
-
+    // Main drawing area is rootsvg
     const rootsvg = d3.select(this.node)
           .attr("width", width + margin.left + margin.right)
           .attr("height", height + margin.top + margin.bottom)
 
+    /*
+     * Navigation bar
+     */
+    const nav = rootsvg.append("g")
+          .attr("transform", "translate(" + margin.left + "," + navTopMargin + ")")
+
+    nav.append("g")
+      .call(d3.axisTop(navX).tickFormat(d3.timeFormat("%H:%M:%S")))
+
+    // Add global cpu times line graph
+    nav.append("path")
+      .datum(navData)
+      .attr("fill", "none")
+      .attr("stroke", "steelblue")
+      .attr("stroke-width", 1.5)
+      .attr("d", d3.line()
+            .x((d,i) => navX(dates[i]))
+            .y(d => navY(d)))
+    nav.selectAll('.notes')
+      .data(notes)
+      .enter().append("line")
+      .attr('class', 'notes')
+      .style("stroke", "black")
+      .style("stroke-width", 0.3)
+      .attr("x1", d => (navX(d.date)))
+      .attr("x2", d => (navX(d.date)))
+      .attr("y1", 0)
+      .attr("y2", navHeight)
+
+    // Define selection brush over nav bar
+    const brush = d3.brushX()
+          .extent([[0, 0], [width, navHeight]])
+          .on("end", brushend)
+
+    function brushend() {
+      if (!event.selection)
+        return
+      x.domain(event.selection.map(navX.invert))
+
+      // Animate x axis rescale
+      var t = svg.transition().duration(750);
+      svg.select(".axis--x").transition(t).call(xAxis)
+
+      // Call redraw to move objects
+      redraw()
+    }
+
+
+    /*
+     * Heat map
+     */
     const svg = rootsvg.append("g")
           .attr("transform", "translate(" + margin.left + "," + margin.top + ")")
 
-    svg.append("g")
-      .call(d3.axisLeft(y).tickSize(0))
-      .selectAll('text')
+    const xAxis = d3.axisTop(x).tickFormat(d3.timeFormat("%H:%M:%S"))
 
     svg.append("g")
-      .call(d3.axisTop(x).tickFormat(d3.timeFormat("%H:%M:%S")))
+      .attr("class", "axis axis--x")
+      .call(xAxis)
 
+    // Create main objects
     const row = svg.selectAll('.row')
           .data(data)
           .enter()
           .append('svg:g')
           .attr('class', 'row')
 
-    row.selectAll('.cell')
-      .data(d => d.cpu_events.map(e => ({
-        y: d.id, x: dates[e[0]], v: e[1]
-      })))
-      .enter().append('rect')
-      .attr('class', 'cell')
-      .attr('x', d => x(d.x) + 1)
-      .attr('y', d => y(d.y))
-      .attr('width', bw - 1)
-      .attr('height', bh - 1)
-      .attr('fill', d => myColor(d.v / 1000))
-      .on('mouseenter', d => {this.setState({selected: {id: d.y, value: d.v, ts: d.x}})})
-      .on('mouseleave', d => {this.setState({selected: null})})
+    const cell = row.selectAll('.cell')
+        .data(d => d.cpu_events.map(e => ({
+          y: d.id, x: dates[e[0]], v: e[1]
+        })))
+        .enter().append('rect')
+        .attr('class', 'cell')
+        .on('mouseenter', d => {this.setState({selected: {id: d.y, value: d.v, ts: d.x}})})
+          .on('mouseleave', d => {this.setState({selected: null})})
 
-    svg.selectAll('.notes')
-      .data(notes)
-      .enter().append("line")
-      .style("stroke", "black")
-      .style("stroke-width", 0.3)
-      .attr("x1", d => (x(d.date)))
-      .attr("x2", d => (x(d.date)))
-      .attr("y1", -45)
-      .attr("y2", height)
+    const notesLines = svg.selectAll('.notes')
+        .data(notes)
+        .enter().append("line")
+        .attr('class', 'notes')
+        .style("stroke", "black")
+          .style("stroke-width", 0.3)
 
-    svg.selectAll('.notes-label')
-      .data(notes)
-      .enter().append("text")
-      .style("font-size", "12px")
-      .attr("x", d => x(d.date))
-      .attr("y", d => -40 + (d.idx & 1 ? 0 : 10))
-      .text(d => d.label)
-/*      .attr("test", d => {console.log("adding note", d, x(d.date))})
-      .attr("width", 3)
-      .attr("height", 3)
-      .attr("fill", "blue")
-*/
+    const notesLabels = svg.selectAll('.notes-label')
+        .data(notes)
+        .enter().append("text")
+        .attr('class', 'notes-label')
+        .style("font-size", "12px")
+
+    // Redraw sets object coordinates
+    function redraw () {
+      // TODO: this assume a 1sec interval...
+      const domain = x.domain(),
+            bw = width / ((domain[1] - domain[0]) / 1000)
+      console.log("Redraw called", x.domain())
+      cell
+        .attr('x', d => x(d.x) + 1)
+        .attr('y', d => y(d.y))
+        .attr('width', bw - 1)
+        .attr('height', rowHeight - 1)
+        .attr('fill', d => myColor(d.v / 1000))
+
+      notesLines
+        .attr("x1", d => (x(d.date)))
+        .attr("x2", d => (x(d.date)))
+        .attr("y1", -50)
+        .attr("y2", height)
+
+      notesLabels
+        .attr("x", d => x(d.date))
+        .attr("y", d => -50 + (d.idx & 3) * 10)
+        .text(d => d.label)
+    }
+
+    const yTicks = svg.append("g")
+      .call(d3.axisLeft(y).tickSize(0))
+
+    // TODO: make background solid instead of over the cells rectangle
+    yTicks.selectAll('text')
+      .attr('fill', 'black')
+      .attr('background', 'white')
+
+    // Add the brush at the end to set the initial range and trigger the redraw
+    nav.append("g")
+      .attr("class", "brush")
+      .call(brush)
+      .call(brush.move, x.range())
   }
 }
 

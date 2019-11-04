@@ -174,21 +174,23 @@ const Summary = function(props) {
       </FlexItem>
       <FlexItem>
         <Card>
-          <CardHeader>Cgroups over time</CardHeader>
+          <CardHeader>Processes over time</CardHeader>
           <CardBody>
             <HeatMap width={1700} dates={infos.dates} tasks={tasks}
-                     tooltip={CgroupTooltip}
-                     data={infos.cgroupsCpu.slice(0, 80)} />
+                     tooltip={PidTooltip}
+                     navData={infos.cpu_events}
+                     data={infos.pidsCpu.slice(0, 80)} />
           </CardBody>
         </Card>
       </FlexItem>
       <FlexItem>
         <Card>
-          <CardHeader>Processes over time</CardHeader>
+          <CardHeader>Cgroups over time</CardHeader>
           <CardBody>
             <HeatMap width={1700} dates={infos.dates} tasks={tasks}
-                     tooltip={PidTooltip}
-                     data={infos.pidsCpu.slice(0, 80)} />
+                     tooltip={CgroupTooltip}
+                     navData={infos.cpu_events}
+                     data={infos.cgroupsCpu.slice(0, 80)} />
           </CardBody>
         </Card>
       </FlexItem>
@@ -305,12 +307,16 @@ function process(data) {
     }
   })
 
+  result.cpu_events = new Array(cpus.length).fill(0);
+
   // Process cpu measures
   cpus.forEach((step, idx) => {
     const cgroups_sum = {}
     step.forEach((cpu) => {
       const pid = pids[cpu[0]]
       const value = cpu[1]
+
+      result.cpu_events[idx - 1] += value
       if (pid === undefined) {
         console.error("Unknown pid", cpu[0])
         return
