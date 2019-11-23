@@ -37,6 +37,7 @@ def usage():
     parser.add_argument("--min-cpu", help="in msec", type=int)
     parser.add_argument("--cgroup", help="cgroup filter regexp", type=str)
     parser.add_argument("--output")
+    parser.add_argument("--summary", help="generate a summary report")
     parser.add_argument("--debug", action='store_true', default=False)
     return parser.parse_args()
 
@@ -58,6 +59,10 @@ pid_max = int(open("/proc/sys/kernel/pid_max").read())
 
 # Debug exec/pid/fork accounting
 DEBUG = args.debug
+
+if args.summary and (not args.json or not args.output):
+    print("--summary requires --json and --output")
+    exit(1)
 
 # Types
 class Perf:
@@ -285,6 +290,23 @@ def scan_pids() -> None:
             pass
 
 
+def create_summary(record: str, output: str) -> None:
+    events = json.load(open(record))
+    cgroup_stats: Dict[int, int] = {}
+
+    for event in events:
+        if event.get("cpu"):
+            pid, value = event["cpu"], event["v"]
+            cid = pids[pid].cid
+            cgroup_stats.setdefault(cid, 0)
+            cgroup_stats[cid] += value
+
+    open(output, "w").write(json.dumps({
+        "cgroups": list(map(lambda x: (cgrs[x[0]], x[1]),
+                            reversed(sorted(cgroup_stats.items(), key=lambda x: x[1]))))
+    }))
+
+
 def run() -> None:
     global running
 
@@ -338,6 +360,10 @@ def run() -> None:
         else:
             end = "Done."
         print(end, file=output)
+        output.flush()
+        output.close()
+        if args.summary:
+            create_summary(args.output, args.summary)
 
 
 if __name__ == "__main__":

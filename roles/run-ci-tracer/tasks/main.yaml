@@ -11,7 +11,7 @@
       Description=BPF ci probe
 
       [Service]
-      ExecStart=/bin/python3 -u {{ ansible_user_dir }}/src/softwarefactory-project.io/software-factory/ci-tracer/src/agent.py {{ ci_tracer_args|default('') }} --json --output {{ ansible_user_dir }}/zuul-output/logs/ci-tracer.json
+      ExecStart=/bin/python3 -u {{ ansible_user_dir }}/src/softwarefactory-project.io/software-factory/ci-tracer/src/agent.py {{ ci_tracer_args|default('') }} --json --summary {{ ansible_user_dir }}/zuul-output/logs/ci-tracer-summary.json --output {{ ansible_user_dir }}/zuul-output/logs/ci-tracer.json
 
       [Install]
       WantedBy=default.target
