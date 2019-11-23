@@ -189,7 +189,7 @@ def handle_exec_event(event):
             if DEBUG:
                 print(f"EXIT {pid}", file=stderr)
 
-    except KeyError:
+    except (KeyError, ProcessLookupError):
         # Sometime pids are unknown when process clone or events are out of order.
         # It's ok, we only care about pid that successfully execve
         # warn(f"Unknown {event.pid} {event.ppid} for {event.type} ({event.arg})")
