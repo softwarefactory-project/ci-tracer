@@ -16,6 +16,7 @@
 
 from bcc import BPF  # type: ignore
 from time import sleep, strftime, monotonic, time
+import re
 import os
 import argparse
 import json
@@ -34,6 +35,7 @@ def usage():
     parser.add_argument("--output-limit", help="size in MB", default=256)
     parser.add_argument("--interval", help="in msec, zero to disable", type=int, default=1000)
     parser.add_argument("--min-cpu", help="in msec", type=int)
+    parser.add_argument("--cgroup", help="cgroup filter regexp", type=str)
     parser.add_argument("--output")
     parser.add_argument("--debug", action='store_true', default=False)
     return parser.parse_args()
@@ -47,6 +49,7 @@ def warn(*msg):
 start_time = monotonic()
 start_time_unix = time()
 args = usage()
+cgroup_filter = re.compile(args.cgroup) if args.cgroup else None
 running = True
 output = open(args.output, "w") if args.output else stdout
 boot_time = int(open("/proc/stat").read().split('btime')[1].split()[0])
@@ -94,9 +97,20 @@ class Process:
 # Cache cgroup name and pid info
 cgrs: Dict[int, str] = {}
 pids: Dict[int, Process] = {}
+cgrs_valid: Set[int] = set()
 # Keep track of what has been serialized
 cgrs_serialized: Set[int] = set()
 pids_serialized: Set[int] = set()
+
+
+def valid_cgroup(cgid: int) -> bool:
+    if not cgroup_filter or cgid in cgrs_valid:
+        return True
+    name = get_cgname(cgid)
+    if cgroup_filter.match(name.split('/')[-1]):
+        cgrs_valid.add(cgid)
+        return True
+    return False
 
 
 # Proc collection
@@ -135,14 +149,16 @@ def handle_exec_event(event):
                 pids_serialized.remove(event.pid)
             except KeyError:
                 pass
-            pids[event.pid] = pid
+            if valid_cgroup(pid.cid):
+                pids[event.pid] = pid
 
         elif event.type == EventType.INIT:
             if not event.arg:
                 # Somehow zuul and ansible manage to execve("", ["zuul-worker"]). Let's skip those for now
                 return
             pid = Process(event.pid, event.ppid, event.cgroup, [event.arg.decode('utf-8')])
-            pids[event.pid] = pid
+            if valid_cgroup(pid.cid):
+                pids[event.pid] = pid
 
         elif event.type == EventType.ARGS:
             pids[event.pid].argv.append(event.arg.decode('utf-8'))
@@ -262,7 +278,8 @@ def scan_pids() -> None:
             if pid_info.cid == 1:
                 # Skip process without cgroup
                 continue
-            pids[pid] = pid_info
+            if valid_cgroup(pid_info.cid):
+                pids[pid] = pid_info
         except FileNotFoundError:
             # Process may be gone
             pass
@@ -286,8 +303,8 @@ def run() -> None:
         print('[{"interval": %d},{"start": %d},' % (args.interval, start_time_unix), file=output)
 
     # Scan initial resources
-    scan_pids()
     scan_cgroups()
+    scan_pids()
 
     #bpf.attach_kretprobe(event=bpf.get_syscall_fnname("clone"), fn_name="syscall__clone")
     bpf.attach_kprobe(event=bpf.get_syscall_fnname("execve"), fn_name="syscall__execve")
