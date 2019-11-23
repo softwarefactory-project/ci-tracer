@@ -177,6 +177,7 @@ const Summary = function(props) {
           <CardHeader>Processes over time</CardHeader>
           <CardBody>
             <HeatMap width={1700} dates={infos.dates} tasks={tasks}
+                     interval={infos.interval}
                      tooltip={PidTooltip}
                      navData={infos.cpu_events}
                      data={infos.pidsCpu.slice(0, 80)} />
@@ -188,6 +189,7 @@ const Summary = function(props) {
           <CardHeader>Cgroups over time</CardHeader>
           <CardBody>
             <HeatMap width={1700} dates={infos.dates} tasks={tasks}
+                     interval={infos.interval}
                      tooltip={CgroupTooltip}
                      navData={infos.cpu_events}
                      data={infos.cgroupsCpu.slice(0, 80)} />

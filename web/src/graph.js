@@ -147,7 +147,7 @@ export class Bars extends D3 {
 export class HeatMap extends D3 {
   create() {
     console.log("Creating heat map...")
-    const { tasks, dates, data, navData, width } = this.props
+    const { tasks, dates, data, navData, width, interval } = this.props
     const startDate = dates[0],
           endDate = dates[dates.length - 1],
           navHeight = 50,
@@ -259,9 +259,8 @@ export class HeatMap extends D3 {
 
     // Redraw sets object coordinates
     function redraw () {
-      // TODO: this assume a 1sec interval...
       const domain = x.domain(),
-            bw = width / ((domain[1] - domain[0]) / 1000)
+            bw = width / ((domain[1] - domain[0]) / interval)
       console.log("Redraw called", x.domain())
       cell
         .attr('x', d => x(d.x) + 1)
