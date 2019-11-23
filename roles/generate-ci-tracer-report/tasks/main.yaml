@@ -29,7 +29,7 @@
           <script src="https://softwarefactory-project.io/static/ci-tracer/ci-bpf.js"></script>
         </body>
       </html>
-    dest: "{{ ansible_env.HOME }}/zuul-output/logs/ci-tracer.html"
+    dest: "{{ ansible_user_dir }}/zuul-output/logs/ci-tracer.html"
 
 - name: Return the report artifact
   delegate_to: localhost
