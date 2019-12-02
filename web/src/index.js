@@ -378,11 +378,9 @@ function processTask(data) {
     gplay.plays.forEach(play => {
       play.tasks.forEach(task => {
         const start = new Date(task.task.duration.start)
-        const end = new Date(task.task.duration.end)
-        if (end - start > 1000) {
-          tasks.push({date: start, label: task.task.name, idx: idx})
-          idx += 1
-        }
+        // const end = new Date(task.task.duration.end)
+        tasks.push({date: start, label: task.task.name, idx: idx})
+        idx += 1
       })
     })
   })
