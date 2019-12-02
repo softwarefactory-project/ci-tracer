@@ -265,8 +265,8 @@ export class HeatMap extends D3 {
       cell
         .attr('x', d => x(d.x) + 1)
         .attr('y', d => y(d.y))
-        .attr('width', bw - 1)
-        .attr('height', rowHeight - 1)
+        .attr('width', bw)
+        .attr('height', rowHeight)
         .attr('fill', d => myColor(d.v / interval))
 
       notesLines
