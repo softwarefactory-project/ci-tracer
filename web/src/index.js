@@ -137,7 +137,7 @@ const Summary = function(props) {
             <List>
               <ListItem>Started: {infos.start.toTimeString()}</ListItem>
               <ListItem>Duration: <b>{infos.end}</b>sec</ListItem>
-              <ListItem>Sampling: <b>{infos.interval}</b>Hz</ListItem>
+              <ListItem>Sampling: <b>{Math.floor(1000 / infos.interval)}</b>Hz</ListItem>
               <ListItem>Processes: <b>{Object.keys(infos.pids).length}</b></ListItem>
               <ListItem>CGroups: <b>{Object.keys(infos.cgroups).length}</b></ListItem>
             </List>
