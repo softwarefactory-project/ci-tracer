@@ -127,7 +127,7 @@ export class PidTooltip extends React.Component {
 
 
 const Summary = function(props) {
-  const { infos, tasks } = props
+  const { infos } = props
 
   return (
     <Flex>
@@ -176,8 +176,8 @@ const Summary = function(props) {
         <Card>
           <CardHeader>Processes over time</CardHeader>
           <CardBody>
-            <HeatMap width={1700} dates={infos.dates} tasks={tasks}
-                     interval={infos.interval}
+            <HeatMap width={1700}
+                     infos={infos}
                      tooltip={PidTooltip}
                      navData={infos.cpu_events}
                      data={infos.pidsCpu.slice(0, 80)} />
@@ -188,8 +188,8 @@ const Summary = function(props) {
         <Card /* Margin ensure tooltip can be scrolled to... */ style={{marginBottom: '200px'}}>
           <CardHeader>Cgroups over time</CardHeader>
           <CardBody>
-            <HeatMap width={1700} dates={infos.dates} tasks={tasks}
-                     interval={infos.interval}
+            <HeatMap width={1700}
+                     infos={infos}
                      tooltip={CgroupTooltip}
                      navData={infos.cpu_events}
                      data={infos.cgroupsCpu.slice(0, 80)} />
@@ -206,7 +206,7 @@ const App = function(props, a, b, c) {
 
   const Items = [
     ["Summary", "Build trace informations",
-     <Summary infos={props.infos} tasks={props.tasks}/>,
+     <Summary infos={props.infos} />,
     ],
     ["CGroups", "Cgroups list", <Cgroups cgroupsCpu={props.infos.cgroupsCpu} />],
     ["Process", "Pid list", <Processes pidsCpu={props.infos.pidsCpu} root={props.infos.root_pid} />],
@@ -386,11 +386,10 @@ function processTask(data) {
   })
   Axios.get('ci-tracer.json').then(response => {
     const infos = process(response.data)
+    infos.tasks = tasks
     ReactDOM.render(
       <ResourcesContext.Provider value={{pids: infos.pids, cgroups: infos.cgroups}}>
-        <App
-          tasks={tasks}
-          infos={infos} />
+        <App infos={infos} />
       </ResourcesContext.Provider>,
       document.getElementById('root'))
   })

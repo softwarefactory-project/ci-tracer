@@ -152,7 +152,9 @@ export class Bars extends D3 {
 export class HeatMap extends D3 {
   create() {
     console.log("Creating heat map...")
-    const { tasks, dates, data, navData, width, interval } = this.props
+    const { infos, width, navData, data } = this.props
+    const { tasks, dates, interval } = infos
+
     const startDate = dates[0],
           endDate = dates[dates.length - 1],
           navHeight = 50,
