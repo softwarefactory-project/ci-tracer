@@ -47,21 +47,26 @@ class D3 extends React.Component {
 
   render() {
     const Tooltip = this.props.tooltip
+    let style = {}
+    if (this.state.selected) {
+      const w = 500, h = 200
+      style = {
+        display: 'block',
+        background: 'white',
+        opacity: 0.8,
+        position: 'absolute',
+        textAlign: 'left',
+        zIndex: '1000',
+        width: w,
+        left: (this.state.x < w) ? (this.state.x + 10) : (this.state.x - w - 10),
+        top: this.state.y
+      }
+    }
     return (
       <center>
         {this.state.selected && (
           <Tooltip
-            style={{display: 'block',
-                    marginLeft: '28px',
-                    padding: '10px',
-                    background: 'white',
-                    opacity: 0.8,
-                    position: 'absolute',
-                    textAlign: 'left',
-                    zIndex: '1000',
-                    left: this.state.x + 10,
-                    top: this.state.y + 10,
-                   }}
+            style={style}
             id={this.state.selected.id}
             ts={this.state.selected.ts}
             value={this.state.selected.value} />

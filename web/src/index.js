@@ -185,7 +185,7 @@ const Summary = function(props) {
         </Card>
       </FlexItem>
       <FlexItem>
-        <Card>
+        <Card /* Margin ensure tooltip can be scrolled to... */ style={{marginBottom: '200px'}}>
           <CardHeader>Cgroups over time</CardHeader>
           <CardBody>
             <HeatMap width={1700} dates={infos.dates} tasks={tasks}
