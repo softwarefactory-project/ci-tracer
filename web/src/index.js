@@ -119,7 +119,6 @@ export class PidTooltip extends React.Component {
         <CardBody>
           <PidInfo pid={this.context.pids[this.props.id]} pids={this.context.pids} />
         </CardBody>
-        <CardFooter>{this.props.value}</CardFooter>
       </Card>)
   }
 }
