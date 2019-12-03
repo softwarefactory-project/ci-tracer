@@ -173,26 +173,12 @@ const Summary = function(props) {
         </Card>
       </FlexItem>
       <FlexItem>
-        <Card>
+        <Card /* Margin ensure tooltip can be scrolled to... */ style={{marginBottom: '200px'}}>
           <CardHeader>Processes over time</CardHeader>
           <CardBody>
             <HeatMap width={1700}
                      infos={infos}
-                     tooltip={PidTooltip}
-                     navData={infos.cpu_events}
-                     data={infos.pidsCpu.slice(0, 80)} />
-          </CardBody>
-        </Card>
-      </FlexItem>
-      <FlexItem>
-        <Card /* Margin ensure tooltip can be scrolled to... */ style={{marginBottom: '200px'}}>
-          <CardHeader>Cgroups over time</CardHeader>
-          <CardBody>
-            <HeatMap width={1700}
-                     infos={infos}
-                     tooltip={CgroupTooltip}
-                     navData={infos.cpu_events}
-                     data={infos.cgroupsCpu.slice(0, 80)} />
+            />
           </CardBody>
         </Card>
       </FlexItem>

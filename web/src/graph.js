@@ -18,6 +18,8 @@ import * as React from 'react'
 // Event needs to be live-binding or something...
 import { event } from 'd3-selection'
 
+import { PidTooltip, CgroupTooltip } from './index.js'
+
 const d3 = {
   ...require('d3-array'),
   ...require('d3-axis'),
@@ -34,7 +36,7 @@ const d3 = {
 
 // TODO: investigate faux-dom e.g. https://github.com/tibotiber/rd3
 class D3 extends React.Component {
-  state = {x: 0, y: 0}
+  state = {x: 0, y: 0, expanded: {}}
 
   componentDidMount(a, b) {
     this.create()
@@ -46,10 +48,10 @@ class D3 extends React.Component {
   }
 
   render() {
-    const Tooltip = this.props.tooltip
     let style = {}
+    let Tooltip = {}
     if (this.state.selected) {
-      const w = 500, h = 200
+      const w = 500
       style = {
         display: 'block',
         background: 'white',
@@ -61,6 +63,7 @@ class D3 extends React.Component {
         left: (this.state.x < w) ? (this.state.x + 10) : (this.state.x - w - 10),
         top: this.state.y
       }
+      Tooltip = this.state.selected.type === "cgroup" ? CgroupTooltip : PidTooltip
     }
     return (
       <center>
@@ -152,8 +155,9 @@ export class Bars extends D3 {
 export class HeatMap extends D3 {
   create() {
     console.log("Creating heat map...")
-    const { infos, width, navData, data } = this.props
+    const { infos, width } = this.props
     const { tasks, dates, interval } = infos
+    const navData = infos.cpu_events
 
     const startDate = dates[0],
           endDate = dates[dates.length - 1],
@@ -165,15 +169,14 @@ export class HeatMap extends D3 {
           margin = { top: 60 + navTopMargin + navBottomMargin + navHeight, right: 70, bottom: 0, left: 40 },
           myColor = d3.interpolateReds,
           rowHeight = 10,
-          height = data.length * rowHeight,
-          y = d3.scaleBand().range([0, height]).domain(data.map(d => (d.id))).padding(0.1),
-          x = d3.scaleUtc().range([0, width]).domain([startDate, endDate]),
+          heatY = d3.scaleBand(),
+          heatX = d3.scaleUtc().range([0, width]).domain([startDate, endDate]),
           notes = tasks.filter(t => t.date > startDate && t.date < endDate)
 
     // Main drawing area is rootsvg
     const rootsvg = d3.select(this.node)
           .attr("width", width + margin.left + margin.right)
-          .attr("height", height + margin.top + margin.bottom)
+          .attr("height", rowHeight + margin.top + margin.bottom)
 
     /*
      * Navigation bar
@@ -212,7 +215,7 @@ export class HeatMap extends D3 {
     function brushend() {
       if (!event.selection)
         return
-      x.domain(event.selection.map(navX.invert))
+      heatX.domain(event.selection.map(navX.invert))
 
       // Animate x axis rescale
       var t = svg.transition().duration(750);
@@ -229,28 +232,13 @@ export class HeatMap extends D3 {
     const svg = rootsvg.append("g")
           .attr("transform", "translate(" + margin.left + "," + margin.top + ")")
 
-    const xAxis = d3.axisTop(x).tickFormat(d3.timeFormat("%H:%M:%S"))
+    const xAxis = d3.axisTop(heatX).tickFormat(d3.timeFormat("%H:%M:%S"))
 
     svg.append("g")
       .attr("class", "axis axis--x")
       .call(xAxis)
 
     // Create main objects
-    const row = svg.selectAll('.row')
-          .data(data)
-          .enter()
-          .append('svg:g')
-          .attr('class', 'row')
-
-    const cell = row.selectAll('.cell')
-        .data(d => d.cpu_events.map(e => ({
-          y: d.id, x: dates[e[0]], v: e[1]
-        })))
-        .enter().append('rect')
-        .attr('class', 'cell')
-        .on('mouseenter', d => {this.setState({selected: {id: d.y, value: d.v, ts: d.x}})})
-          .on('mouseleave', d => {this.setState({selected: null})})
-
     const notesLines = svg.selectAll('.notes')
         .data(notes)
         .enter().append("line")
@@ -264,32 +252,114 @@ export class HeatMap extends D3 {
         .attr('class', 'notes-label')
         .style("font-size", "12px")
 
+    // Function to update the Y domain on expand/collapse click
+    function domainChanged (expanded) {
+      // ReGenerate the Y domain
+      const domain = []
+      infos.cgroupsCpu.forEach(cg => {
+        cg.domainId = cg.id * -1
+        domain.push(cg.domainId)
+        if (expanded && expanded[cg.id]) {
+          cg.pids.forEach(p => {domain.push(p)})
+        }
+      })
+
+      // Compute and update heatmap height
+      const height = domain.length * rowHeight
+      rootsvg.attr("height", height + margin.top + margin.bottom)
+      notesLines.attr("y2", height)
+
+      // Update the scale with the new domain
+      heatY.range([0, height]).domain(domain).padding(0.1)
+      if (expanded) {
+        redraw(expanded)
+      }
+    }
+    // Initialize domain
+    domainChanged()
+
+    // Create a .row for each cgroup
+    const row = svg.selectAll('.row')
+          .data(infos.cgroupsCpu)
+          .enter()
+          .append('svg:g')
+          .attr('class', 'row')
+
+    // Create a .cgRow for the cgroup events
+    const cell = row.append('svg:g').attr('class', 'cgRow').selectAll('.cell')
+        .data(d => d.cpu_events.map(e => ({
+          y: d.domainId, x: dates[e[0]], v: e[1]
+        })))
+        .enter().append('rect')
+        .attr('class', 'cell')
+        .on('mouseenter', d => {this.setState({selected: {id: d.y * -1, value: d.v, ts: d.x, type: 'cgroup'}})})
+        .on('mouseleave', d => {this.setState({selected: null})})
+        .on('click', d => {this.setState(prevState => ({
+            // Toggle cgroup expanded state
+            expanded: {...prevState.expanded,
+                       [d.y * -1]: prevState.expanded[d.y * -1] ? false : true}}))
+                          domainChanged(this.state.expanded)})
+
+    // Create a .pids row for the cgroup's pids
+    const pidRowGroup = row
+          .append('svg:g').attr('class', 'pids')
+    // Create a .pidrow for each cgroup's pid
+    const pidRow = pidRowGroup
+          .selectAll('.pidrow')
+          .data(d => d.pids.map(p => (infos.pids[p])))
+          .enter()
+          .append('svg:g')
+          .attr('class', 'pidrow')
+
+    const pidCell = pidRow.selectAll('.pidcell')
+        .data(d => d.cpu_events.map(e => ({
+          y: d.id, x: dates[e[0]], v: e[1]
+        })))
+        .enter().append('rect')
+        .attr('class', 'pidcell')
+        .on('mouseenter', d => {this.setState({selected: {id: d.y, value: d.v, ts: d.x, type: 'pid'}})})
+        .on('mouseleave', d => {this.setState({selected: null})})
+
+    const yTicks = svg.append("g")
+
     // Redraw sets object coordinates
-    function redraw () {
-      const domain = x.domain(),
+    function redraw (expanded) {
+      const domain = heatX.domain(),
             bw = width / ((domain[1] - domain[0]) / interval)
-      console.log("Redraw called", x.domain())
+      console.log("redraw called")
+
+      if (expanded) {
+        row.attr('style', d => expanded[d.id] ? 'outline: 1px dashed grey; outline-offset: -1px' : '')
+        pidRow.attr('visibility', d => expanded[d.cg] ? 'visible' : 'hidden')
+      } else {
+        pidRow.attr('visibility', 'hidden')
+      }
+
+      yTicks.call(d3.axisLeft(heatY).tickSize(0))
       cell
-        .attr('x', d => x(d.x) + 1)
-        .attr('y', d => y(d.y))
+        .attr('x', d => heatX(d.x))
+        .attr('y', d => heatY(d.y))
+        .attr('width', bw)
+        .attr('height', rowHeight)
+        .attr('fill', d => myColor(d.v / interval))
+
+      pidCell
+        .attr('x', d => heatX(d.x))
+        .attr('y', d => heatY(d.y))
         .attr('width', bw)
         .attr('height', rowHeight)
         .attr('fill', d => myColor(d.v / interval))
 
       notesLines
-        .attr("x1", d => (x(d.date)))
-        .attr("x2", d => (x(d.date)))
+        .attr("x1", d => (heatX(d.date)))
+        .attr("x2", d => (heatX(d.date)))
         .attr("y1", -50)
-        .attr("y2", height)
 
       notesLabels
-        .attr("x", d => x(d.date))
+        .attr("x", d => heatX(d.date))
         .attr("y", d => -50 + (d.idx & 3) * 10)
         .text(d => d.label)
     }
-
-    const yTicks = svg.append("g")
-      .call(d3.axisLeft(y).tickSize(0))
 
     // TODO: make background solid instead of over the cells rectangle
     yTicks.selectAll('text')
@@ -300,7 +370,7 @@ export class HeatMap extends D3 {
     nav.append("g")
       .attr("class", "brush")
       .call(brush)
-      .call(brush.move, x.range())
+      .call(brush.move, heatX.range())
   }
 }
 
