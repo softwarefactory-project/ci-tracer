@@ -55,7 +55,7 @@ running = True
 output = open(args.output, "w") if args.output else stdout
 boot_time = int(open("/proc/stat").read().split('btime')[1].split()[0])
 clock = int(os.sysconf('SC_CLK_TCK'))
-pid_max = int(open("/proc/sys/kernel/pid_max").read())
+pid_max = min(32768, int(open("/proc/sys/kernel/pid_max").read()))
 
 # Debug exec/pid/fork accounting
 DEBUG = args.debug
