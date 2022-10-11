@@ -334,7 +334,7 @@ def run() -> None:
     bpf["execs"].open_perf_buffer(lambda c, d, s: handle_exec_event(bpf["execs"].event(d)))
 
     if args.interval:
-        bpf.attach_kprobe(event="finish_task_switch", fn_name="finish_task_switch")
+        bpf.attach_kprobe(event_re="finish_task_switch", fn_name="finish_task_switch")
         c = threading.Thread(target=collect_cpu, name="collect-cpu", args=(bpf["oncpus"],))
         c.start()
 

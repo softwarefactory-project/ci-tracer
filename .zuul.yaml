@@ -9,7 +9,7 @@
     nodeset:
       nodes:
         - name: host
-          label: cloud-fedora-30
+          label: cloud-fedora-37
 
 - project:
     check:
