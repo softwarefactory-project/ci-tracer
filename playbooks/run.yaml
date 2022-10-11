@@ -10,7 +10,10 @@
 
     - name: Generate a bit of load
       shell: |
-        python3 -c "for i in range(2000): print(i**i)" | dd of=/dev/null
+        for i in $(seq 10); do
+          python3 -c "for i in range(2000): print(i**i)" | dd of=/dev/null
+          sleep 0.5
+        done
 
 - hosts: all
   tasks:
