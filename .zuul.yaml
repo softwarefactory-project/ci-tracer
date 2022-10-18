@@ -15,3 +15,6 @@
     check:
       jobs:
         - ci-tracer-test
+    gate:
+      jobs:
+        - ci-tracer-test
